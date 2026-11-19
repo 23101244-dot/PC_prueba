@@ -14,7 +14,6 @@
       :rows-per-page-options="[5, 10, 20, 50]"
       :loading="loading"
       loading-label="Cargando usuarios..."
-      no-data-label="No hay usuarios para mostrar"
       rows-per-page-label="Filas por página"
       flat
       bordered
@@ -53,13 +52,33 @@
           </q-btn>
         </q-td>
       </template>
+
+      <!-- P2: mensaje cuando no hay coincidencias -->
+      <template #no-data>
+        <div class="full-width row flex-center text-grey-8 q-gutter-sm q-pa-md">
+          <q-icon size="2em" name="person_search" />
+          <span v-if="props.search">
+            No se encontraron colaboradores para "<b>{{ props.search }}</b
+            >"
+          </span>
+          <span v-else-if="!loading">No hay usuarios para mostrar</span>
+        </div>
+      </template>
     </q-table>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import api from '@/services/api'
+
+// P2: texto de búsqueda que llega desde la página
+const props = defineProps({
+  search: {
+    type: String,
+    default: '',
+  },
+})
 
 const columns = [
   { name: 'image', label: 'Foto', field: 'image', align: 'center' },
@@ -97,28 +116,40 @@ const pagination = ref({
 })
 
 // QTable llama a esta función cada vez que cambia la página o las filas por página
-async function onRequest(props) {
-  const { page, rowsPerPage } = props.pagination
+async function onRequest(requestProps) {
+  const { page, rowsPerPage } = requestProps.pagination
+  const query = props.search.trim()
 
   loading.value = true
   errorMessage.value = ''
 
   try {
-    const { data } = await api.get('/users', {
-      params: {
-        limit: rowsPerPage,
-        skip: (page - 1) * rowsPerPage,
-      },
-    })
+    // Sin texto → /users   |   Con texto → /users/search?q=texto (P2)
+    const url = query ? '/users/search' : '/users'
+    const params = {
+      limit: rowsPerPage,
+      skip: (page - 1) * rowsPerPage,
+    }
+    if (query) params.q = query
+
+    const { data } = await api.get(url, { params })
 
     rows.value = data.users
-    pagination.value = { ...props.pagination, rowsNumber: data.total }
+    pagination.value = { ...requestProps.pagination, rowsNumber: data.total }
   } catch (error) {
     errorMessage.value = error.response?.data?.message || 'No se pudo cargar la lista de usuarios.'
   } finally {
     loading.value = false
   }
 }
+
+// P2: cada vez que cambia la búsqueda, se vuelve a la página 1 y se consulta el servicio
+watch(
+  () => props.search,
+  () => {
+    onRequest({ pagination: { ...pagination.value, page: 1 } })
+  },
+)
 
 // Primera carga: ?limit=10&skip=0
 onMounted(() => {
